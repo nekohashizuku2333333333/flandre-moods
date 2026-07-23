@@ -1,0 +1,8 @@
+name = "smirnova-wellbeing"
+pages_build_output_dir = "dist"
+compatibility_date = "2024-09-23"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "wellbeing"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"

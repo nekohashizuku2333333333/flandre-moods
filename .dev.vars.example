@@ -1,0 +1,2 @@
+ADMIN_PASSWORD_HASH=run-npm-run-hash-password----your-password-and-paste-the-output-here
+SESSION_SECRET=any-long-random-string

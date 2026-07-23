@@ -1,0 +1,33 @@
+{
+  "name": "smirnova-wellbeing",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "oxlint",
+    "preview": "vite preview",
+    "functions:typecheck": "tsc -p functions/tsconfig.json",
+    "hash-password": "node scripts/hash-password.mjs",
+    "db:migrate:local": "wrangler d1 migrations apply wellbeing --local",
+    "db:migrate:remote": "wrangler d1 migrations apply wellbeing --remote",
+    "pages:dev": "vite build && wrangler pages dev dist",
+    "deploy": "vite build && wrangler pages deploy dist"
+  },
+  "dependencies": {
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260722.1",
+    "@types/node": "^24.13.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "oxlint": "^1.71.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.1.1",
+    "wrangler": "^4.113.0"
+  }
+}
