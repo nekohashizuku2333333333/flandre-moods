@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
   metrics,
   metricById,
@@ -44,6 +44,35 @@ function useVisibleDays(): number {
   return visibleDays
 }
 
+// Re-runs `refresh` whenever the user comes back to the page (switching back
+// to the tab, unlocking the phone, restoring from the back/forward cache), so
+// the data and the "today" labels never go stale on a long-lived tab.
+function useRefreshOnReturn(enabled: boolean, refresh: () => void) {
+  const refreshRef = useRef(refresh)
+  refreshRef.current = refresh
+
+  useEffect(() => {
+    if (!enabled) return
+    function onVisibilityChange() {
+      if (document.visibilityState === 'visible') refreshRef.current()
+    }
+    function onFocus() {
+      refreshRef.current()
+    }
+    function onPageShow(e: PageTransitionEvent) {
+      if (e.persisted) refreshRef.current()
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    window.addEventListener('focus', onFocus)
+    window.addEventListener('pageshow', onPageShow)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.removeEventListener('focus', onFocus)
+      window.removeEventListener('pageshow', onPageShow)
+    }
+  }, [enabled])
+}
+
 const WEEKDAYS_ZH = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 
 function formatDayLabel(date: Date): string {
@@ -53,8 +82,6 @@ function formatDayLabel(date: Date): string {
 function formatFullDate(date: Date): string {
   return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`
 }
-
-const todayLabel = formatDayLabel(new Date())
 
 interface TooltipState {
   x: number
@@ -503,6 +530,7 @@ function Dashboard({
   onDeleteEntry?: (id: number) => Promise<void>
 }) {
   const [tooltip, setTooltip] = useState<TooltipState | null>(null)
+  const todayLabel = formatDayLabel(new Date())
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -613,6 +641,15 @@ export function AdminApp() {
   const [entries, setEntries] = useState<ApiEntry[]>([])
   const [entriesError, setEntriesError] = useState<string | null>(null)
 
+  const loadEntries = useCallback(() => {
+    getEntries()
+      .then((res) => {
+        setEntries(res.entries)
+        setEntriesError(null)
+      })
+      .catch((err) => setEntriesError(err instanceof ApiError ? err.message : '加载记录失败'))
+  }, [])
+
   useEffect(() => {
     getSession()
       .then((res) => setAuthState(res.authenticated ? 'signed-in' : 'signed-out'))
@@ -620,14 +657,10 @@ export function AdminApp() {
   }, [])
 
   useEffect(() => {
-    if (authState !== 'signed-in') return
-    getEntries()
-      .then((res) => {
-        setEntries(res.entries)
-        setEntriesError(null)
-      })
-      .catch((err) => setEntriesError(err instanceof ApiError ? err.message : '加载记录失败'))
-  }, [authState])
+    if (authState === 'signed-in') loadEntries()
+  }, [authState, loadEntries])
+
+  useRefreshOnReturn(authState === 'signed-in', loadEntries)
 
   async function handleSaveCheckIn(metricId: string, tier: Tier, note: string) {
     const { entry } = await upsertEntry({ metricId, date: todayKey(), tier, note: note.trim() || null })
@@ -684,7 +717,7 @@ export function PublicApp() {
   const [entries, setEntries] = useState<ApiEntry[]>([])
   const [entriesError, setEntriesError] = useState<string | null>(null)
 
-  useEffect(() => {
+  const loadEntries = useCallback(() => {
     getEntries()
       .then((res) => {
         setEntries(res.entries)
@@ -693,6 +726,12 @@ export function PublicApp() {
       .catch((err) => setEntriesError(err instanceof ApiError ? err.message : '加载记录失败'))
       .finally(() => setLoaded(true))
   }, [])
+
+  useEffect(() => {
+    loadEntries()
+  }, [loadEntries])
+
+  useRefreshOnReturn(true, loadEntries)
 
   if (!loaded) {
     return <div className="page login-page" aria-busy="true" />
