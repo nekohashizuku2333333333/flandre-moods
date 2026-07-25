@@ -22,6 +22,12 @@
   --tier-f: #14120e;
   --tier-f-ink: #f1eee6;
 
+  /* index.html sets viewport-fit=cover, so the viewport extends under the notch
+     and the home indicator. Mirrored into custom properties so JS can read them
+     when it clamps fixed-position overlays. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+
   --font:
     -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', 'Microsoft YaHei', 'SF Pro Text', system-ui,
     sans-serif;

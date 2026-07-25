@@ -293,13 +293,14 @@
   }
 }
 
+/* `top` is the box's real top edge — BarTooltip measures the box and clamps it
+   into the safe area, so there is no vertical transform to undo here. */
 .bar-tooltip {
   position: fixed;
   z-index: 20;
-  transform: translate(-50%, -100%);
+  transform: translateX(-50%);
   min-width: 170px;
   max-width: 250px;
-  padding: 10px 12px;
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--surface);
@@ -308,8 +309,20 @@
   animation: fade-in 120ms ease-out;
 }
 
-.bar-tooltip--flip {
-  transform: translate(-50%, 0);
+/* The scroll cap lives on the body, not the box: the arrow is drawn outside the
+   box's edge and any overflow other than `visible` would clip it away. */
+.bar-tooltip-body {
+  padding: 10px 12px;
+  border-radius: inherit;
+  max-height: calc(100dvh - 2px - 2 * 8px - var(--safe-top) - var(--safe-bottom));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Clamped hard against a screen edge — the box no longer touches its bar, so a
+   pointer would aim at nothing. */
+.bar-tooltip--free::after {
+  display: none;
 }
 
 .bar-tooltip::after {

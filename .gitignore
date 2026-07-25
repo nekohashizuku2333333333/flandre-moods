@@ -16,6 +16,9 @@ dist-ssr
 .wrangler
 .dev.vars
 
+# Database exports — contain personal entry content, never commit
+backups
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

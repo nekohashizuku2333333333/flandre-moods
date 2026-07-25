@@ -117,10 +117,22 @@ function DiffBadge({ metric, from, to }: { metric: MetricConfig; from: Tier; to:
   )
 }
 
+const TOOLTIP_GAP = 10
+const VIEWPORT_MARGIN = 8
+
+// `viewport-fit=cover` lets the viewport run under the notch and the home
+// indicator, so 0 and innerHeight are not safe edges to clamp against.
+function safeInset(name: string): number {
+  const value = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name))
+  return Number.isFinite(value) ? value : 0
+}
+
 interface TooltipState {
+  /** True, unclamped centre of the bar — the arrow tracks this. */
   x: number
-  y: number
-  flip: boolean
+  /** The bar's edges in viewport coordinates. */
+  barTop: number
+  barBottom: number
   date: Date
   metric: MetricConfig
   entries: ApiEntry[]
@@ -128,45 +140,67 @@ interface TooltipState {
 
 function BarTooltip({ tooltip }: { tooltip: TooltipState }) {
   const ref = useRef<HTMLDivElement>(null)
-  // tooltip.x is the true, unclamped center of the bar being pointed at. The
-  // box itself gets clamped to stay on-screen, but the arrow stays glued to
-  // tooltip.x so it keeps pointing at the actual bar even when the box shifts.
-  const [box, setBox] = useState({ left: tooltip.x, arrowX: 0 })
+  // The box is clamped to stay fully on-screen. The arrow stays glued to the
+  // bar's real centre, and is dropped entirely when clamping pulled the box
+  // off the bar so it would otherwise point at nothing.
+  const [box, setBox] = useState({
+    left: tooltip.x,
+    top: tooltip.barTop,
+    arrowX: 0,
+    flip: false,
+    anchored: true,
+  })
 
   useLayoutEffect(() => {
-    const width = ref.current?.offsetWidth ?? 0
-    const margin = 8
+    const el = ref.current
+    if (!el) return
+    const { offsetWidth: width, offsetHeight: height } = el
+
     const half = width / 2
-    const left = Math.min(Math.max(tooltip.x, half + margin), window.innerWidth - half - margin)
+    const left = Math.min(Math.max(tooltip.x, half + VIEWPORT_MARGIN), window.innerWidth - half - VIEWPORT_MARGIN)
     const arrowX = Math.min(Math.max(tooltip.x - (left - half), 14), width - 14)
-    setBox({ left, arrowX })
+
+    // Prefer sitting above the bar, drop below when it does not fit up there,
+    // then clamp whichever side was chosen into the safe area. Measuring the
+    // real height first is what keeps a tall tooltip from spilling off-screen.
+    const limitTop = VIEWPORT_MARGIN + safeInset('--safe-top')
+    const limitBottom = window.innerHeight - VIEWPORT_MARGIN - safeInset('--safe-bottom')
+    const above = tooltip.barTop - TOOLTIP_GAP - height
+    const below = tooltip.barBottom + TOOLTIP_GAP
+    const flip = above < limitTop && below + height <= limitBottom
+    const ideal = flip ? below : above
+    const top = Math.min(Math.max(ideal, limitTop), Math.max(limitTop, limitBottom - height))
+
+    setBox({ left, top, arrowX, flip, anchored: Math.abs(top - ideal) < 0.5 })
   }, [tooltip])
 
   return (
     <div
       ref={ref}
-      className={`bar-tooltip${tooltip.flip ? ' bar-tooltip--flip' : ''}`}
-      style={{ left: box.left, top: tooltip.y, '--arrow-x': `${box.arrowX}px` } as CSSProperties}
+      className={`bar-tooltip${box.flip ? ' bar-tooltip--flip' : ''}${box.anchored ? '' : ' bar-tooltip--free'}`}
+      style={{ left: box.left, top: box.top, '--arrow-x': `${box.arrowX}px` } as CSSProperties}
       role="tooltip"
     >
-      <div className="bar-tooltip-date">{formatDayLabel(tooltip.date)}</div>
-      {tooltip.entries.length === 0 ? (
-        <div className="bar-tooltip-muted">未记录</div>
-      ) : (
-        <ul className="tooltip-entries">
-          {tooltip.entries.map((entry, i) => (
-            <li className="tooltip-entry" key={entry.id}>
-              <span className="tooltip-entry-head">
-                <span className="entry-time">{entry.time}</span>
-                <TierChip tier={entry.tier} />
-                {i > 0 && <DiffBadge metric={tooltip.metric} from={tooltip.entries[i - 1].tier} to={entry.tier} />}
-              </span>
-              {entry.note && <span className="tooltip-entry-note">{entry.note}</span>}
-            </li>
-          ))}
-        </ul>
-      )}
-      <div className="bar-tooltip-metric">{tooltip.metric.title}</div>
+      <div className="bar-tooltip-body">
+        <div className="bar-tooltip-date">{formatDayLabel(tooltip.date)}</div>
+        {tooltip.entries.length === 0 ? (
+          <div className="bar-tooltip-muted">未记录</div>
+        ) : (
+          <ul className="tooltip-entries">
+            {tooltip.entries.map((entry, i) => (
+              <li className="tooltip-entry" key={entry.id}>
+                <span className="tooltip-entry-head">
+                  <span className="entry-time">{entry.time}</span>
+                  <TierChip tier={entry.tier} />
+                  {i > 0 && <DiffBadge metric={tooltip.metric} from={tooltip.entries[i - 1].tier} to={entry.tier} />}
+                </span>
+                {entry.note && <span className="tooltip-entry-note">{entry.note}</span>}
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="bar-tooltip-metric">{tooltip.metric.title}</div>
+      </div>
     </div>
   )
 }
@@ -192,11 +226,12 @@ function Bar({
   function reveal() {
     const rect = ref.current?.getBoundingClientRect()
     if (!rect) return
-    const flip = rect.top < 130
+    // Hand over the bar's geometry and let the tooltip place itself — only it
+    // knows how tall it ended up.
     onShow({
       x: rect.left + rect.width / 2,
-      y: flip ? rect.bottom + 10 : rect.top - 10,
-      flip,
+      barTop: rect.top,
+      barBottom: rect.bottom,
       date,
       metric,
       entries,
