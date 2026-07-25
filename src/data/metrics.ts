@@ -1,32 +1,36 @@
-export type Tier = 'good' | 'okay' | 'low' | 'hard'
-export type DayStatus = Tier | 'none'
+export type Tier = 'A' | 'B' | 'C' | 'D' | 'E' | 'F'
+
+export const ALL_TIERS: Tier[] = ['A', 'B', 'C', 'D', 'E', 'F']
 
 export interface MetricConfig {
   id: string
   title: string
-  currentLabel: Record<Tier, string>
+  /** Grades this metric accepts, best first. 心情 stops at E; 自杀意念 adds F. */
+  tiers: Tier[]
 }
 
 export const metrics: MetricConfig[] = [
   {
     id: 'mood',
     title: '心情',
-    currentLabel: { good: '感觉不错', okay: '还过得去', low: '有点低落', hard: '很难熬' },
+    tiers: ['A', 'B', 'C', 'D', 'E'],
   },
   {
     id: 'suicidal-ideation',
     title: '自杀意念',
-    currentLabel: {
-      good: '今天没有',
-      okay: '偶尔闪过',
-      low: '持续出现',
-      hard: '正处于危机',
-    },
+    tiers: ['A', 'B', 'C', 'D', 'E', 'F'],
   },
 ]
 
 export function metricById(id: string): MetricConfig | undefined {
   return metrics.find((m) => m.id === id)
+}
+
+// Rows read back from the API carry whatever metric_id was stored, which may
+// predate the current config. Fall back to a full A–F scale so an unknown
+// metric still renders instead of silently disappearing from the log.
+export function metricFor(id: string): MetricConfig {
+  return metricById(id) ?? { id, title: id, tiers: ALL_TIERS }
 }
 
 export function formatDateKey(date: Date): string {
@@ -52,14 +56,39 @@ export function todayKey(): string {
   return formatDateKey(new Date())
 }
 
-export function goodPercent(statuses: DayStatus[]): number | null {
-  const logged = statuses.filter((s): s is Tier => s !== 'none')
-  if (logged.length === 0) return null
-  const score = logged.reduce((sum, tier) => {
-    if (tier === 'good') return sum + 1
-    if (tier === 'okay') return sum + 0.75
-    if (tier === 'low') return sum + 0.35
-    return sum
-  }, 0)
-  return (score / logged.length) * 100
+export function nowTimeKey(): string {
+  const now = new Date()
+  return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+}
+
+/** Steps between two grades on this metric's own scale. Positive = got worse. */
+export function tierDelta(metric: MetricConfig, from: Tier, to: Tier): number {
+  return metric.tiers.indexOf(to) - metric.tiers.indexOf(from)
+}
+
+// 1 for the best grade down to 0 for the worst, spread evenly over the metric's
+// own depth so 心情 (A–E) and 自杀意念 (A–F) stay comparable to each other.
+export function tierScore(metric: MetricConfig, tier: Tier): number {
+  const index = metric.tiers.indexOf(tier)
+  if (index === -1) return 0
+  return 1 - index / (metric.tiers.length - 1)
+}
+
+export function goodPercent(metric: MetricConfig, tiers: Tier[]): number | null {
+  if (tiers.length === 0) return null
+  const score = tiers.reduce((sum, tier) => sum + tierScore(metric, tier), 0)
+  return (score / tiers.length) * 100
+}
+
+export function tierRange(metric: MetricConfig, tiers: Tier[]): { best: Tier; worst: Tier } | null {
+  let bestIndex = metric.tiers.length
+  let worstIndex = -1
+  for (const tier of tiers) {
+    const index = metric.tiers.indexOf(tier)
+    if (index === -1) continue
+    if (index < bestIndex) bestIndex = index
+    if (index > worstIndex) worstIndex = index
+  }
+  if (worstIndex === -1) return null
+  return { best: metric.tiers[bestIndex], worst: metric.tiers[worstIndex] }
 }

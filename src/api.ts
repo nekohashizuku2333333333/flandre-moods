@@ -3,7 +3,10 @@ import type { Tier } from './data/metrics'
 export interface ApiEntry {
   id: number
   metric_id: string
+  /** YYYY-MM-DD, local. */
   date: string
+  /** HH:MM, local. Several entries can share a date. */
+  time: string
   tier: Tier
   note: string | null
   created_at: string
@@ -41,16 +44,20 @@ export function getEntries(): Promise<{ entries: ApiEntry[] }> {
   return request('/api/entries')
 }
 
-export function upsertEntry(input: {
+export function createEntry(input: {
   metricId: string
   date: string
+  time: string
   tier: Tier
   note?: string | null
 }): Promise<{ entry: ApiEntry }> {
   return request('/api/entries', { method: 'POST', body: JSON.stringify(input) })
 }
 
-export function updateEntry(id: number, input: { tier?: Tier; note?: string | null }): Promise<{ entry: ApiEntry }> {
+export function updateEntry(
+  id: number,
+  input: { tier?: Tier; time?: string; note?: string | null },
+): Promise<{ entry: ApiEntry }> {
   return request(`/api/entries/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
 }
 

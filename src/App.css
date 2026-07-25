@@ -54,6 +54,79 @@
   text-decoration: underline;
 }
 
+/* ── Grade colours ─────────────────────────────────────────────────────────
+   Shared by the letter chips, the selected picker buttons and the bar
+   segments, so a grade always looks the same wherever it shows up. */
+
+.t-A {
+  background: var(--tier-a);
+  color: var(--tier-a-ink);
+}
+.t-B {
+  background: var(--tier-b);
+  color: var(--tier-b-ink);
+}
+.t-C {
+  background: var(--tier-c);
+  color: var(--tier-c-ink);
+}
+.t-D {
+  background: var(--tier-d);
+  color: var(--tier-d-ink);
+}
+.t-E {
+  background: var(--tier-e);
+  color: var(--tier-e-ink);
+}
+.t-F {
+  background: var(--tier-f);
+  color: var(--tier-f-ink);
+}
+
+.tier-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: 23px;
+  height: 23px;
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+
+.entry-time {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.diff-badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.diff-badge--worse {
+  color: var(--tier-e);
+}
+
+.diff-badge--better {
+  color: var(--tier-a);
+}
+
+.diff-badge--same {
+  color: var(--text-muted);
+}
+
+/* ── Metric rows ───────────────────────────────────────────────────────── */
+
 .metric-list {
   display: flex;
   flex-direction: column;
@@ -69,7 +142,7 @@
 .metric-head {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 6px 12px;
 }
@@ -80,26 +153,22 @@
 }
 
 .metric-state {
-  font-size: 0.8125rem;
-  font-weight: 600;
-  white-space: nowrap;
-  transition: color 150ms ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.state-good {
-  color: var(--good);
-}
-.state-okay {
-  color: var(--okay);
-}
-.state-low {
-  color: var(--low);
-}
-.state-hard {
-  color: var(--hard);
-}
-.state-unlogged {
+.metric-state-none {
+  font-size: 0.8125rem;
+  font-weight: 600;
   color: var(--text-muted);
+}
+
+.metric-swing {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .day-bars {
@@ -128,11 +197,16 @@
   border-radius: 2px;
 }
 
+/* Each day is one bar, split top-to-bottom into equal segments — one per
+   check-in, earliest first — so an unsteady day reads as a stack. */
 .bar {
+  display: flex;
+  flex-direction: column;
   flex: 1 0 4px;
   min-width: 3px;
   height: clamp(28px, 7vw, 34px);
   border-radius: 1px;
+  overflow: hidden;
   cursor: pointer;
   transition: filter 150ms ease;
 }
@@ -142,26 +216,25 @@
   filter: brightness(1.2);
 }
 
+.bar-seg {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.bar-seg--none {
+  background: var(--border);
+}
+
+/* Hairline in the page's own colour so two consecutive check-ins at the same
+   grade still read as two. */
+.bar-seg + .bar-seg {
+  border-top: 1px solid color-mix(in srgb, var(--bg) 65%, transparent);
+}
+
 @media (max-width: 480px) {
   .bar {
     min-width: 2.5px;
   }
-}
-
-.bar-good {
-  background: var(--good);
-}
-.bar-okay {
-  background: var(--okay);
-}
-.bar-low {
-  background: var(--low);
-}
-.bar-hard {
-  background: var(--hard);
-}
-.bar-none {
-  background: var(--border);
 }
 
 .metric-foot {
@@ -189,6 +262,28 @@
   background: var(--border);
 }
 
+/* Today's check-ins in order, with the change between each pair. */
+.today-chain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.today-chain-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.today-chain-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ── Tooltip ───────────────────────────────────────────────────────────── */
+
 @keyframes fade-in {
   from {
     opacity: 0;
@@ -202,8 +297,8 @@
   position: fixed;
   z-index: 20;
   transform: translate(-50%, -100%);
-  min-width: 160px;
-  max-width: 220px;
+  min-width: 170px;
+  max-width: 250px;
   padding: 10px 12px;
   border-radius: 8px;
   border: 1px solid var(--border);
@@ -237,12 +332,7 @@
 .bar-tooltip-date {
   font-size: 0.75rem;
   color: var(--text-muted);
-  margin-bottom: 4px;
-}
-
-.bar-tooltip-label {
-  font-size: 0.875rem;
-  font-weight: 600;
+  margin-bottom: 6px;
 }
 
 .bar-tooltip-muted {
@@ -250,20 +340,43 @@
   color: var(--text-muted);
 }
 
-.bar-tooltip-note {
+.tooltip-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tooltip-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.tooltip-entry-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tooltip-entry-note {
   font-size: 0.8125rem;
   color: var(--text);
-  margin-top: 6px;
+  white-space: pre-wrap;
 }
 
 .bar-tooltip-metric {
   font-size: 0.75rem;
   color: var(--text-muted);
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
+/* ── Logs ──────────────────────────────────────────────────────────────── */
+
 .entries-error {
-  color: var(--hard);
+  color: var(--danger);
   font-size: 0.875rem;
   margin: 0 0 16px;
 }
@@ -305,25 +418,36 @@
   flex-direction: column;
   gap: 6px;
   width: 100%;
-  padding: 10px 6px;
+  padding: 8px 6px;
 }
 
 .log-entry-head {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.log-entry-tier {
-  font-size: 0.9375rem;
-  font-weight: 600;
+  align-items: center;
+  gap: 8px;
 }
 
 .log-entry-metric {
   font-size: 0.8125rem;
   color: var(--text-muted);
   white-space: nowrap;
+  margin-left: auto;
+}
+
+.log-entry-edit {
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  transition: color 150ms ease;
+}
+
+.log-entry-edit:hover {
+  color: var(--accent);
+  text-decoration: underline;
 }
 
 .log-entry-note {
@@ -333,17 +457,27 @@
   margin: 0;
 }
 
-.log-entry-note-edit {
+.log-entry-form {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  margin-top: 2px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  animation: fade-in 150ms ease-out;
 }
 
-.log-entry-note-actions {
+.log-entry-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.log-entry-actions-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .log-entry-delete {
@@ -358,7 +492,7 @@
 }
 
 .log-entry-delete:hover {
-  color: var(--hard);
+  color: var(--danger);
 }
 
 .log-entry-confirm {
@@ -382,7 +516,7 @@
 }
 
 .log-entry-confirm-yes {
-  color: var(--hard);
+  color: var(--danger);
 }
 
 .log-entry-confirm-no {
@@ -395,6 +529,8 @@
   opacity: 0.6;
   cursor: default;
 }
+
+/* ── Forms ─────────────────────────────────────────────────────────────── */
 
 .button-primary {
   border: 1.5px solid var(--accent);
@@ -464,81 +600,59 @@
   margin: 0;
 }
 
-.tier-select {
-  position: relative;
+.tier-picker {
+  display: flex;
+  gap: 6px;
 }
 
-.tier-select-trigger {
+.tier-picker-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 42px;
+  border: 1.5px solid transparent;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+/* Scoped away from the selected button so the grade's own .t-* fill, which has
+   the same specificity, is not overridden by these neutral defaults. */
+.tier-picker-btn:not(.is-selected) {
+  border-color: var(--border);
+  background: none;
+  color: var(--text-muted);
+}
+
+.tier-picker-btn:not(.is-selected):hover {
+  border-color: var(--text-muted);
+  color: var(--text);
+}
+
+.time-field {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  border: none;
-  border-bottom: 1px solid var(--border);
-  background: none;
-  color: currentColor;
-  font: inherit;
-  font-size: 0.9375rem;
-  font-weight: 600;
-  padding: 8px 2px;
-  cursor: pointer;
-  transition: border-color 150ms ease;
-}
-
-.tier-select-trigger:hover {
-  border-color: var(--text);
-}
-
-.tier-select-trigger:focus-visible {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.tier-select-chevron {
-  flex-shrink: 0;
+  gap: 10px;
+  font-size: 0.8125rem;
   color: var(--text-muted);
-  transition: transform 150ms ease;
 }
 
-.tier-select-trigger[aria-expanded='true'] .tier-select-chevron {
-  transform: rotate(180deg);
-}
-
-.tier-select-menu {
-  position: absolute;
-  z-index: 5;
-  top: calc(100% + 6px);
-  left: 0;
-  right: 0;
-  margin: 0;
-  padding: 4px;
-  list-style: none;
+.time-field input {
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--surface);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
-  animation: fade-in 120ms ease-out;
-}
-
-.tier-select-option {
-  display: block;
-  width: 100%;
-  border: none;
-  border-radius: 4px;
-  background: none;
-  color: currentColor;
-  font: inherit;
-  font-size: 0.9375rem;
-  font-weight: 600;
-  text-align: left;
-  padding: 8px 8px;
-  cursor: pointer;
-  transition: background-color 150ms ease;
-}
-
-.tier-select-option:hover {
   background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  padding: 7px 9px;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
 }
 
 .checkin-note {
@@ -557,6 +671,7 @@
 }
 
 .checkin-note:focus-visible,
+.time-field input:focus-visible,
 .login-input:focus-visible {
   outline: none;
   border-color: var(--accent);
@@ -564,7 +679,7 @@
 }
 
 .checkin-error {
-  color: var(--hard);
+  color: var(--danger);
   font-size: 0.8125rem;
   margin: 0;
 }
@@ -589,6 +704,8 @@
 .checkin-cancel:hover {
   color: var(--text);
 }
+
+/* ── Login ─────────────────────────────────────────────────────────────── */
 
 .login-page {
   display: flex;
@@ -633,7 +750,7 @@
 }
 
 .login-error {
-  color: var(--hard);
+  color: var(--danger);
   font-size: 0.875rem;
   text-align: center;
   margin: 0;
@@ -646,7 +763,20 @@
 /* iOS Safari auto-zooms into focused fields whose font-size is below 16px. */
 @media (pointer: coarse) {
   .checkin-note,
+  .time-field input,
   .login-input {
     font-size: 16px;
+  }
+}
+
+/* Pure black sits too close to the dark background to read on its own. */
+@media (prefers-color-scheme: dark) {
+  .bar-seg.t-F {
+    box-shadow: inset 0 0 0 1px rgba(241, 238, 230, 0.3);
+  }
+
+  .tier-chip.t-F,
+  .tier-picker-btn.is-selected.t-F {
+    border-color: rgba(241, 238, 230, 0.26);
   }
 }

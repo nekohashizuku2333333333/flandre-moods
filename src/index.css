@@ -5,11 +5,22 @@
   --text-muted: #6b6a62;
   --border: #e3e0d5;
   --accent: #2f6e5c;
+  --danger: #b4463c;
 
-  --good: #4b8b63;
-  --okay: #c9962e;
-  --low: #cc7a33;
-  --hard: #b4463c;
+  /* Grade scale, A (best) → F (worst, 自杀意念 only). Each pair is the solid
+     fill and the text colour that sits on top of it. */
+  --tier-a: #3f7a55;
+  --tier-a-ink: #fbfaf6;
+  --tier-b: #5f7c33;
+  --tier-b-ink: #fbfaf6;
+  --tier-c: #9a6c14;
+  --tier-c-ink: #fbfaf6;
+  --tier-d: #b2601f;
+  --tier-d-ink: #fbfaf6;
+  --tier-e: #a63b32;
+  --tier-e-ink: #fbfaf6;
+  --tier-f: #14120e;
+  --tier-f-ink: #f1eee6;
 
   --font:
     -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', 'Microsoft YaHei', 'SF Pro Text', system-ui,
@@ -26,11 +37,22 @@
     --text-muted: #a7a398;
     --border: #38352c;
     --accent: #5cb694;
+    --danger: #d06860;
 
-    --good: #5fa377;
-    --okay: #d9ae55;
-    --low: #d98f5b;
-    --hard: #d06860;
+    --tier-a: #5fa377;
+    --tier-a-ink: #12110e;
+    --tier-b: #9bb457;
+    --tier-b-ink: #12110e;
+    --tier-c: #d9ae55;
+    --tier-c-ink: #12110e;
+    --tier-d: #d98f5b;
+    --tier-d-ink: #12110e;
+    --tier-e: #d06860;
+    --tier-e-ink: #12110e;
+    /* True black barely separates from the dark background, so anything
+       filled with it also gets a hairline outline (see App.css). */
+    --tier-f: #000000;
+    --tier-f-ink: #d7d3ca;
   }
 }
 

@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
   metrics,
-  metricById,
+  metricFor,
   goodPercent,
+  tierDelta,
+  tierRange,
   dateForIndex,
   formatDateKey,
   parseDateKey,
   todayKey,
+  nowTimeKey,
   type MetricConfig,
   type Tier,
-  type DayStatus,
 } from './data/metrics'
-import { getSession, getEntries, upsertEntry, updateEntry, deleteEntry, logout, ApiError, type ApiEntry } from './api'
+import { getSession, getEntries, createEntry, updateEntry, deleteEntry, logout, ApiError, type ApiEntry } from './api'
 import { LoginScreen } from './LoginScreen'
 import './App.css'
 
@@ -21,8 +23,6 @@ const DESKTOP_MAX_WIDTH = 1400
 const MOBILE_DAYS = 30
 const DESKTOP_MIN_DAYS = 60
 const DESKTOP_MAX_DAYS = 90
-
-const TIER_ORDER: Tier[] = ['good', 'okay', 'low', 'hard']
 
 function computeVisibleDays(width: number): number {
   if (width < MOBILE_BREAKPOINT) return MOBILE_DAYS
@@ -83,15 +83,47 @@ function formatFullDate(date: Date): string {
   return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`
 }
 
+function byTime(a: ApiEntry, b: ApiEntry): number {
+  if (a.time === b.time) return a.id - b.id
+  return a.time < b.time ? -1 : 1
+}
+
+function TierChip({ tier }: { tier: Tier }) {
+  return <span className={`tier-chip t-${tier}`}>{tier}</span>
+}
+
+/** The diff between two consecutive check-ins: how many grades it moved, and
+ *  in which direction. A is best, so moving down the alphabet is a decline. */
+function DiffBadge({ metric, from, to }: { metric: MetricConfig; from: Tier; to: Tier }) {
+  const delta = tierDelta(metric, from, to)
+
+  if (delta === 0) {
+    return (
+      <span className="diff-badge diff-badge--same" aria-label="与上一次相同">
+        =
+      </span>
+    )
+  }
+
+  const worse = delta > 0
+  return (
+    <span
+      className={`diff-badge ${worse ? 'diff-badge--worse' : 'diff-badge--better'}`}
+      aria-label={`比上一次${worse ? '差' : '好'} ${Math.abs(delta)} 级`}
+    >
+      {worse ? '↓' : '↑'}
+      {Math.abs(delta)}
+    </span>
+  )
+}
+
 interface TooltipState {
   x: number
   y: number
   flip: boolean
-  status: DayStatus
   date: Date
-  label: string
-  note: string | null
-  metricTitle: string
+  metric: MetricConfig
+  entries: ApiEntry[]
 }
 
 function BarTooltip({ tooltip }: { tooltip: TooltipState }) {
@@ -118,31 +150,40 @@ function BarTooltip({ tooltip }: { tooltip: TooltipState }) {
       role="tooltip"
     >
       <div className="bar-tooltip-date">{formatDayLabel(tooltip.date)}</div>
-      {tooltip.status === 'none' ? (
+      {tooltip.entries.length === 0 ? (
         <div className="bar-tooltip-muted">未记录</div>
       ) : (
-        <div className={`bar-tooltip-label state-${tooltip.status}`}>{tooltip.label}</div>
+        <ul className="tooltip-entries">
+          {tooltip.entries.map((entry, i) => (
+            <li className="tooltip-entry" key={entry.id}>
+              <span className="tooltip-entry-head">
+                <span className="entry-time">{entry.time}</span>
+                <TierChip tier={entry.tier} />
+                {i > 0 && <DiffBadge metric={tooltip.metric} from={tooltip.entries[i - 1].tier} to={entry.tier} />}
+              </span>
+              {entry.note && <span className="tooltip-entry-note">{entry.note}</span>}
+            </li>
+          ))}
+        </ul>
       )}
-      {tooltip.note && <div className="bar-tooltip-note">{tooltip.note}</div>}
-      <div className="bar-tooltip-metric">{tooltip.metricTitle}</div>
+      <div className="bar-tooltip-metric">{tooltip.metric.title}</div>
     </div>
   )
 }
 
+// One bar per day, sliced into equal segments — one per check-in, earliest at
+// the top — so a day that swung around reads as a stack of different colours
+// instead of a single flat value.
 function Bar({
-  status,
   date,
-  label,
-  note,
-  metricTitle,
+  entries,
+  metric,
   onShow,
   onHide,
 }: {
-  status: DayStatus
   date: Date
-  label: string
-  note: string | null
-  metricTitle: string
+  entries: ApiEntry[]
+  metric: MetricConfig
   onShow: (tooltip: TooltipState) => void
   onHide: () => void
 }) {
@@ -152,26 +193,28 @@ function Bar({
     const rect = ref.current?.getBoundingClientRect()
     if (!rect) return
     const flip = rect.top < 130
-    const x = rect.left + rect.width / 2
     onShow({
-      x,
+      x: rect.left + rect.width / 2,
       y: flip ? rect.bottom + 10 : rect.top - 10,
       flip,
-      status,
       date,
-      label,
-      note,
-      metricTitle,
+      metric,
+      entries,
     })
   }
+
+  const label =
+    entries.length === 0
+      ? '未记录'
+      : `${entries.length} 次记录,${entries.map((e) => e.tier).join('、')}`
 
   return (
     <span
       ref={ref}
-      className={`bar bar-${status}`}
+      className="bar"
       tabIndex={0}
       role="button"
-      aria-label={`${formatDayLabel(date)}:${status === 'none' ? '未记录' : label}`}
+      aria-label={`${formatDayLabel(date)}:${label}`}
       onMouseEnter={reveal}
       onMouseLeave={onHide}
       onFocus={reveal}
@@ -180,11 +223,17 @@ function Bar({
         e.stopPropagation()
         reveal()
       }}
-    />
+    >
+      {entries.length === 0 ? (
+        <span className="bar-seg bar-seg--none" />
+      ) : (
+        entries.map((entry) => <span key={entry.id} className={`bar-seg t-${entry.tier}`} />)
+      )}
+    </span>
   )
 }
 
-function TierSelect({
+function TierPicker({
   metric,
   value,
   onChange,
@@ -193,86 +242,59 @@ function TierSelect({
   value: Tier
   onChange: (tier: Tier) => void
 }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    function handlePointerDown(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    window.addEventListener('mousedown', handlePointerDown)
-    window.addEventListener('keydown', handleKeyDown)
-    return () => {
-      window.removeEventListener('mousedown', handlePointerDown)
-      window.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [open])
-
   return (
-    <div className="tier-select" ref={ref}>
-      <button
-        type="button"
-        className={`tier-select-trigger state-${value}`}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        onClick={(e) => {
-          e.stopPropagation()
-          setOpen((o) => !o)
-        }}
-      >
-        {metric.currentLabel[value]}
-        <svg className="tier-select-chevron" width="10" height="6" viewBox="0 0 10 6" aria-hidden="true">
-          <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
-        </svg>
-      </button>
-      {open && (
-        <ul className="tier-select-menu" role="listbox">
-          {TIER_ORDER.map((t) => (
-            <li key={t} role="presentation">
-              <button
-                type="button"
-                role="option"
-                aria-selected={t === value}
-                className={`tier-select-option state-${t}`}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onChange(t)
-                  setOpen(false)
-                }}
-              >
-                {metric.currentLabel[t]}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+    <div className="tier-picker" role="radiogroup" aria-label={`${metric.title}等级`}>
+      {metric.tiers.map((tier) => (
+        <button
+          key={tier}
+          type="button"
+          role="radio"
+          aria-checked={tier === value}
+          className={`tier-picker-btn${tier === value ? ` is-selected t-${tier}` : ''}`}
+          onClick={(e) => {
+            e.stopPropagation()
+            onChange(tier)
+          }}
+        >
+          {tier}
+        </button>
+      ))}
     </div>
+  )
+}
+
+function TimeField({ value, onChange }: { value: string; onChange: (time: string) => void }) {
+  return (
+    <label className="time-field">
+      <span className="time-field-label">时间</span>
+      <input type="time" value={value} onChange={(e) => onChange(e.target.value)} />
+    </label>
   )
 }
 
 function CheckInForm({
   metric,
-  todayEntry,
+  todayCount,
   onSave,
 }: {
   metric: MetricConfig
-  todayEntry?: ApiEntry
-  onSave: (tier: Tier, note: string) => Promise<void>
+  todayCount: number
+  onSave: (tier: Tier, time: string, note: string) => Promise<void>
 }) {
   const [editing, setEditing] = useState(false)
-  const [tier, setTier] = useState<Tier>(todayEntry?.tier ?? 'good')
-  const [note, setNote] = useState(todayEntry?.note ?? '')
+  const [tier, setTier] = useState<Tier>(metric.tiers[0])
+  const [time, setTime] = useState(nowTimeKey)
+  const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    setTier(todayEntry?.tier ?? 'good')
-    setNote(todayEntry?.note ?? '')
-  }, [todayEntry])
+  function open() {
+    setTier(metric.tiers[0])
+    setTime(nowTimeKey())
+    setNote('')
+    setError(null)
+    setEditing(true)
+  }
 
   if (!editing) {
     return (
@@ -282,10 +304,10 @@ function CheckInForm({
           className="checkin-toggle"
           onClick={(e) => {
             e.stopPropagation()
-            setEditing(true)
+            open()
           }}
         >
-          {todayEntry ? '编辑今天的记录' : '记录今天'}
+          {todayCount > 0 ? '再记一次' : '记录现在'}
         </button>
       </div>
     )
@@ -295,7 +317,7 @@ function CheckInForm({
     setSaving(true)
     setError(null)
     try {
-      await onSave(tier, note)
+      await onSave(tier, time, note)
       setEditing(false)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '保存失败,请重试。')
@@ -306,8 +328,9 @@ function CheckInForm({
 
   return (
     <div className="checkin-form" onClick={(e) => e.stopPropagation()}>
-      <p className="checkin-label">选择今天的状态</p>
-      <TierSelect metric={metric} value={tier} onChange={setTier} />
+      <p className="checkin-label">现在是哪一级</p>
+      <TierPicker metric={metric} value={tier} onChange={setTier} />
+      <TimeField value={time} onChange={setTime} />
       <textarea
         className="checkin-note"
         placeholder="写点笔记(选填)"
@@ -331,58 +354,63 @@ function CheckInForm({
 function MetricRow({
   metric,
   visibleDays,
-  entryMap,
+  entriesByDay,
   canManage,
   onShowTooltip,
   onHideTooltip,
-  onSaveCheckIn,
+  onCreateEntry,
 }: {
   metric: MetricConfig
   visibleDays: number
-  entryMap: Map<string, ApiEntry>
+  entriesByDay: Map<string, ApiEntry[]>
   canManage: boolean
   onShowTooltip: (tooltip: TooltipState) => void
   onHideTooltip: () => void
-  onSaveCheckIn: (tier: Tier, note: string) => Promise<void>
+  onCreateEntry: (tier: Tier, time: string, note: string) => Promise<void>
 }) {
   const days = useMemo(() => {
-    const list: { date: Date; status: DayStatus; entry?: ApiEntry }[] = []
+    const list: { date: Date; entries: ApiEntry[] }[] = []
     for (let i = 0; i < visibleDays; i++) {
       const date = dateForIndex(i, visibleDays)
-      const entry = entryMap.get(`${metric.id}|${formatDateKey(date)}`)
-      list.push({ date, status: entry ? entry.tier : 'none', entry })
+      list.push({ date, entries: entriesByDay.get(`${metric.id}|${formatDateKey(date)}`) ?? [] })
     }
     return list
-  }, [metric.id, visibleDays, entryMap])
+  }, [metric.id, visibleDays, entriesByDay])
 
-  const todayEntry = entryMap.get(`${metric.id}|${todayKey()}`)
-  const currentStatus: DayStatus = todayEntry ? todayEntry.tier : 'none'
-  const percent = goodPercent(days.map((d) => d.status))
+  const todayEntries = entriesByDay.get(`${metric.id}|${todayKey()}`) ?? []
+  const latest = todayEntries.at(-1)
+  // Averaged over every check-in in the window, not one value per day, so a day
+  // logged five times counts five times.
+  const percent = goodPercent(
+    metric,
+    days.flatMap((d) => d.entries.map((e) => e.tier)),
+  )
+  const swing = tierRange(
+    metric,
+    todayEntries.map((e) => e.tier),
+  )
 
   return (
     <article className="metric-row">
       <div className="metric-head">
         <h2 className="metric-title">{metric.title}</h2>
-        <span className={`metric-state state-${currentStatus === 'none' ? 'unlogged' : currentStatus}`}>
-          {currentStatus === 'none' ? '未记录' : metric.currentLabel[currentStatus]}
+        <span className="metric-state">
+          {latest ? <TierChip tier={latest.tier} /> : <span className="metric-state-none">未记录</span>}
+          {todayEntries.length > 1 && swing && (
+            <span className="metric-swing">
+              今天 {todayEntries.length} 次 · {swing.best}–{swing.worst}
+            </span>
+          )}
         </span>
       </div>
 
-      <div
-        className="day-bars"
-        role="img"
-        aria-label={`${metric.title}:过去 ${days.length} 天的自我记录,最近一次是${
-          currentStatus === 'none' ? '未记录' : metric.currentLabel[currentStatus]
-        }`}
-      >
-        {days.map(({ date, status, entry }, i) => (
+      <div className="day-bars" role="img" aria-label={`${metric.title}:过去 ${days.length} 天的自我记录`}>
+        {days.map(({ date, entries }, i) => (
           <Bar
             key={i}
-            status={status}
             date={date}
-            label={status !== 'none' ? metric.currentLabel[status] : ''}
-            note={entry?.note ?? null}
-            metricTitle={metric.title}
+            entries={entries}
+            metric={metric}
             onShow={onShowTooltip}
             onHide={onHideTooltip}
           />
@@ -397,43 +425,64 @@ function MetricRow({
         <span className="foot-label">今天</span>
       </div>
 
-      {canManage && <CheckInForm metric={metric} todayEntry={todayEntry} onSave={onSaveCheckIn} />}
+      {todayEntries.length > 1 && (
+        <div className="today-chain">
+          <span className="today-chain-label">今天的变化</span>
+          {todayEntries.map((entry, i) => (
+            <span className="today-chain-step" key={entry.id}>
+              {i > 0 && <DiffBadge metric={metric} from={todayEntries[i - 1].tier} to={entry.tier} />}
+              <span className="entry-time">{entry.time}</span>
+              <TierChip tier={entry.tier} />
+            </span>
+          ))}
+        </div>
+      )}
+
+      {canManage && <CheckInForm metric={metric} todayCount={todayEntries.length} onSave={onCreateEntry} />}
     </article>
   )
 }
 
 function LogEntryRow({
   entry,
-  metricTitle,
+  metric,
+  prevTier,
   canManage,
-  onSaveNote,
+  onSave,
   onDelete,
 }: {
   entry: ApiEntry
-  metricTitle: string
+  metric: MetricConfig
+  prevTier: Tier | null
   canManage: boolean
-  onSaveNote?: (id: number, note: string) => Promise<void>
+  onSave?: (id: number, patch: { tier: Tier; time: string; note: string | null }) => Promise<void>
   onDelete?: (id: number) => Promise<void>
 }) {
+  const [editing, setEditing] = useState(false)
+  const [tier, setTier] = useState<Tier>(entry.tier)
+  const [time, setTime] = useState(entry.time)
   const [note, setNote] = useState(entry.note ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [deleteError, setDeleteError] = useState<string | null>(null)
-  const label = metricById(entry.metric_id)?.currentLabel[entry.tier] ?? entry.tier
-  const dirty = note !== (entry.note ?? '')
 
-  useEffect(() => {
+  function open() {
+    setTier(entry.tier)
+    setTime(entry.time)
     setNote(entry.note ?? '')
-  }, [entry.note])
+    setError(null)
+    setConfirmingDelete(false)
+    setEditing(true)
+  }
 
   async function handleSave() {
-    if (!onSaveNote) return
+    if (!onSave) return
     setSaving(true)
     setError(null)
     try {
-      await onSaveNote(entry.id, note)
+      await onSave(entry.id, { tier, time, note: note.trim() || null })
+      setEditing(false)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : '保存失败,请重试。')
     } finally {
@@ -444,11 +493,11 @@ function LogEntryRow({
   async function handleDelete() {
     if (!onDelete) return
     setDeleting(true)
-    setDeleteError(null)
+    setError(null)
     try {
       await onDelete(entry.id)
     } catch (err) {
-      setDeleteError(err instanceof ApiError ? err.message : '删除失败,请重试。')
+      setError(err instanceof ApiError ? err.message : '删除失败,请重试。')
       setDeleting(false)
     }
   }
@@ -456,11 +505,30 @@ function LogEntryRow({
   return (
     <div className="log-entry">
       <div className="log-entry-head">
-        <span className={`log-entry-tier state-${entry.tier}`}>{label}</span>
-        <span className="log-entry-metric">{metricTitle}</span>
+        <span className="entry-time">{entry.time}</span>
+        <TierChip tier={entry.tier} />
+        {prevTier && <DiffBadge metric={metric} from={prevTier} to={entry.tier} />}
+        <span className="log-entry-metric">{metric.title}</span>
+        {canManage && !editing && (
+          <button
+            type="button"
+            className="log-entry-edit"
+            onClick={(e) => {
+              e.stopPropagation()
+              open()
+            }}
+          >
+            编辑
+          </button>
+        )}
       </div>
-      {canManage ? (
-        <div className="log-entry-note-edit">
+
+      {!editing && entry.note && <p className="log-entry-note">{entry.note}</p>}
+
+      {editing && (
+        <div className="log-entry-form" onClick={(e) => e.stopPropagation()}>
+          <TierPicker metric={metric} value={tier} onChange={setTier} />
+          <TimeField value={time} onChange={setTime} />
           <textarea
             className="checkin-note"
             placeholder="写点笔记(选填)"
@@ -469,17 +537,11 @@ function LogEntryRow({
             rows={2}
           />
           {error && <p className="checkin-error">{error}</p>}
-          {deleteError && <p className="checkin-error">{deleteError}</p>}
-          <div className="log-entry-note-actions">
+          <div className="log-entry-actions">
             {confirmingDelete ? (
               <span className="log-entry-confirm">
-                确定删除这条记录?
-                <button
-                  type="button"
-                  className="log-entry-confirm-yes"
-                  onClick={handleDelete}
-                  disabled={deleting}
-                >
+                确定删除?
+                <button type="button" className="log-entry-confirm-yes" onClick={handleDelete} disabled={deleting}>
                   {deleting ? '删除中…' : '删除'}
                 </button>
                 <button
@@ -496,15 +558,16 @@ function LogEntryRow({
                 删除
               </button>
             )}
-            {dirty && (
+            <span className="log-entry-actions-right">
+              <button type="button" className="checkin-cancel" onClick={() => setEditing(false)}>
+                取消
+              </button>
               <button type="button" className="button-primary" onClick={handleSave} disabled={saving}>
                 {saving ? '保存中…' : '保存'}
               </button>
-            )}
+            </span>
           </div>
         </div>
-      ) : (
-        entry.note && <p className="log-entry-note">{entry.note}</p>
       )}
     </div>
   )
@@ -516,8 +579,8 @@ function Dashboard({
   visibleDays,
   canManage,
   onLogout,
-  onSaveCheckIn,
-  onSaveNote,
+  onCreateEntry,
+  onSaveEntry,
   onDeleteEntry,
 }: {
   entries: ApiEntry[]
@@ -525,8 +588,8 @@ function Dashboard({
   visibleDays: number
   canManage: boolean
   onLogout?: () => void
-  onSaveCheckIn?: (metricId: string, tier: Tier, note: string) => Promise<void>
-  onSaveNote?: (id: number, note: string) => Promise<void>
+  onCreateEntry?: (metricId: string, tier: Tier, time: string, note: string) => Promise<void>
+  onSaveEntry?: (id: number, patch: { tier: Tier; time: string; note: string | null }) => Promise<void>
   onDeleteEntry?: (id: number) => Promise<void>
 }) {
   const [tooltip, setTooltip] = useState<TooltipState | null>(null)
@@ -540,22 +603,38 @@ function Dashboard({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
-  const entryMap = useMemo(() => {
-    const map = new Map<string, ApiEntry>()
-    for (const entry of entries) map.set(`${entry.metric_id}|${entry.date}`, entry)
-    return map
-  }, [entries])
-
-  const logGroups = useMemo(() => {
-    const sorted = [...entries].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
+  const entriesByDay = useMemo(() => {
     const map = new Map<string, ApiEntry[]>()
-    for (const entry of sorted) {
-      const key = formatFullDate(parseDateKey(entry.date))
+    for (const entry of entries) {
+      const key = `${entry.metric_id}|${entry.date}`
       const group = map.get(key)
       if (group) group.push(entry)
       else map.set(key, [entry])
     }
-    return Array.from(map.entries())
+    for (const group of map.values()) group.sort(byTime)
+    return map
+  }, [entries])
+
+  // Newest day first, but chronological inside a day so each entry can be
+  // diffed against the previous check-in of the same metric.
+  const logGroups = useMemo(() => {
+    const byDate = new Map<string, ApiEntry[]>()
+    for (const entry of entries) {
+      const group = byDate.get(entry.date)
+      if (group) group.push(entry)
+      else byDate.set(entry.date, [entry])
+    }
+    return Array.from(byDate.keys())
+      .sort((a, b) => (a < b ? 1 : -1))
+      .map((date) => {
+        const previous = new Map<string, Tier>()
+        const rows = [...byDate.get(date)!].sort(byTime).map((entry) => {
+          const prevTier = previous.get(entry.metric_id) ?? null
+          previous.set(entry.metric_id, entry.tier)
+          return { entry, prevTier }
+        })
+        return { date, label: formatFullDate(parseDateKey(date)), rows }
+      })
   }, [entries])
 
   return (
@@ -593,11 +672,11 @@ function Dashboard({
               key={metric.id}
               metric={metric}
               visibleDays={visibleDays}
-              entryMap={entryMap}
+              entriesByDay={entriesByDay}
               canManage={canManage}
               onShowTooltip={setTooltip}
               onHideTooltip={() => setTooltip(null)}
-              onSaveCheckIn={(tier, note) => onSaveCheckIn!(metric.id, tier, note)}
+              onCreateEntry={(tier, time, note) => onCreateEntry!(metric.id, tier, time, note)}
             />
           ))}
         </section>
@@ -607,17 +686,18 @@ function Dashboard({
           {logGroups.length === 0 ? (
             <p className="logs-empty">还没有任何记录。</p>
           ) : (
-            logGroups.map(([dateLabel, group]) => (
-              <div className="log-group" key={dateLabel}>
-                <h3 className="log-date">{dateLabel}</h3>
+            logGroups.map((group) => (
+              <div className="log-group" key={group.date}>
+                <h3 className="log-date">{group.label}</h3>
                 <div className="log-entries">
-                  {group.map((entry) => (
+                  {group.rows.map(({ entry, prevTier }) => (
                     <LogEntryRow
                       key={entry.id}
                       entry={entry}
-                      metricTitle={metricById(entry.metric_id)?.title ?? entry.metric_id}
+                      metric={metricFor(entry.metric_id)}
+                      prevTier={prevTier}
                       canManage={canManage}
-                      onSaveNote={onSaveNote}
+                      onSave={onSaveEntry}
                       onDelete={onDeleteEntry}
                     />
                   ))}
@@ -662,19 +742,13 @@ export function AdminApp() {
 
   useRefreshOnReturn(authState === 'signed-in', loadEntries)
 
-  async function handleSaveCheckIn(metricId: string, tier: Tier, note: string) {
-    const { entry } = await upsertEntry({ metricId, date: todayKey(), tier, note: note.trim() || null })
-    setEntries((prev) => {
-      const idx = prev.findIndex((e) => e.id === entry.id)
-      if (idx === -1) return [...prev, entry]
-      const next = [...prev]
-      next[idx] = entry
-      return next
-    })
+  async function handleCreateEntry(metricId: string, tier: Tier, time: string, note: string) {
+    const { entry } = await createEntry({ metricId, date: todayKey(), time, tier, note: note.trim() || null })
+    setEntries((prev) => [...prev, entry])
   }
 
-  async function handleUpdateNote(id: number, note: string) {
-    const { entry } = await updateEntry(id, { note: note.trim() || null })
+  async function handleSaveEntry(id: number, patch: { tier: Tier; time: string; note: string | null }) {
+    const { entry } = await updateEntry(id, patch)
     setEntries((prev) => prev.map((e) => (e.id === entry.id ? entry : e)))
   }
 
@@ -704,8 +778,8 @@ export function AdminApp() {
       visibleDays={visibleDays}
       canManage
       onLogout={handleLogout}
-      onSaveCheckIn={handleSaveCheckIn}
-      onSaveNote={handleUpdateNote}
+      onCreateEntry={handleCreateEntry}
+      onSaveEntry={handleSaveEntry}
       onDeleteEntry={handleDeleteEntry}
     />
   )
