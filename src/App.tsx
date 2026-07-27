@@ -675,7 +675,7 @@ function Dashboard({
   return (
     <div className="page" onClick={() => setTooltip(null)}>
       <header className="topbar">
-        <div className="brand">Smirnova 的身心健康</div>
+        <div className="brand">芙兰朵露的神秘精神状态</div>
         <div className="topbar-meta">
           <span className="today-date">{todayLabel}</span>
           {canManage && (

@@ -23,7 +23,7 @@ export function LoginScreen({ onSuccess }: { onSuccess: () => void }) {
   return (
     <div className="page login-page">
       <form className="login-form" onSubmit={handleSubmit}>
-        <h1 className="login-title">Smirnova 的身心健康</h1>
+        <h1 className="login-title">芙兰朵露的神秘精神状态</h1>
         <p className="login-subtitle">登录后继续。</p>
         <input
           type="password"
